@@ -1,7 +1,11 @@
+// bot-ho改造版: VLESS + Reality + TLS
+// 原项目: https://github.com/cdwdw-eng/bot-ho
+// 改造: 添加 Reality 加密 + 移除 Cloudflare Tunnel 依赖
+
 const { spawn, execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const dns = require('dns').promises;
+const crypto = require('crypto');
 
 process.on('uncaughtException', (err) => console.error('[Error]', err.message));
 process.on('unhandledRejection', (reason) => console.error('[Error]', reason));
@@ -30,28 +34,7 @@ const fetchPublicIP = () => {
 
 IP = fetchPublicIP();
 
-// 2. 纯动态 PTR 反向解析：向 DNS 询问当前 IP 绑定的真实域名（零字典、零硬编码）
-async function getDynamicDomain(targetIp) {
-  if (!targetIp || targetIp === '127.0.0.1') return null;
-  try {
-    const hostnames = await dns.reverse(targetIp);
-    if (hostnames && hostnames.length > 0) {
-      // 自动返回如 fi14.bot-hosting.cloud 或新服务器绑定的 PTR 域名
-      return hostnames[0];
-    }
-  } catch (e) {
-    // 若机房未配置 PTR 记录，退回获取主机名
-  }
-  return null;
-}
-
-// 3. 清理残留进程
-try {
-  execSync('pkill -f web || true');
-  execSync('pkill -f npm-runner || true');
-} catch (e) {}
-
-// 4. 动态读取 UUID 并写入配置文件
+// 2. 动态读取 UUID
 let UUID = '0febdf96-c364-4a8a-af2b-7707e102e31a';
 try {
   if (fs.existsSync(configPath)) {
@@ -64,6 +47,71 @@ try {
   console.error('[Config Read Error]', e.message);
 }
 
+// 3. Reality 配置
+const REALITY_DEST = process.env.REALITY_DEST || 'www.apple.com:443';
+const REALITY_SERVER_NAMES = (process.env.REALITY_SERVER_NAMES || 'www.apple.com,www.google.com,www.microsoft.com,www.samsung.com').split(',');
+
+// 4. 生成 Reality key pair (X25519)
+const KEY_DIR = path.join(__dirname, 'keys');
+let PRIVATE_KEY = '';
+let PUBLIC_KEY = '';
+
+if (!fs.existsSync(KEY_DIR)) {
+  fs.mkdirSync(KEY_DIR, { recursive: true });
+}
+const KEY_FILE = path.join(KEY_DIR, 'reality_key.pem');
+
+if (fs.existsSync(KEY_FILE)) {
+  PRIVATE_KEY = fs.readFileSync(KEY_FILE, 'utf8').trim();
+  try {
+    PUBLIC_KEY = execSync(`echo "${PRIVATE_KEY}" | ${path.join(__dirname, 'web')} x25519 -`, { encoding: 'utf8' }).trim();
+  } catch (e) {
+    console.error('[Key Load Error] Cannot derive public key');
+  }
+}
+
+// 5. 自动下载 sing-box 二进制
+const decode = (str) => Buffer.from(str, 'base64').toString('utf-8');
+const URL_CORE = decode('aHR0cHM6Ly9naXRodWIuY29tL1NhZ2VyTmV0L3NpbmctYm94L3JlbGVhc2VzL2Rvd25sb2FkL3YxLjkuMy9zaW5nLWJveC0xLjkuMy1saW51eC1hbWQ2NC50YXIuZ3o=');
+
+const BIN_CORE = path.join(__dirname, 'web');
+const ua = 'npm/9.6.7 node/v18.16.0 linux x64';
+
+if (!fs.existsSync(BIN_CORE)) {
+  try {
+    console.log('[Core] Downloading Sing-box 1.9.3...');
+    execSync(`curl -A "${ua}" -sSL "${URL_CORE}" | tar -xz -C /tmp && mv /tmp/sing-box-*/sing-box ${BIN_CORE} && chmod +x ${BIN_CORE}`);
+  } catch (e) { console.error('[Core Download Failed]:', e.message); }
+}
+
+// 6. 生成/加载 key pair
+if (!PRIVATE_KEY && fs.existsSync(BIN_CORE)) {
+  try {
+    const result = execSync(`${BIN_CORE} x25519`, { encoding: 'utf8' });
+    const lines = result.split('\n');
+    for (const line of lines) {
+      if (line.startsWith('Private key:')) {
+        PRIVATE_KEY = line.split(':')[1].trim();
+      } else if (line.startsWith('Public key:')) {
+        PUBLIC_KEY = line.split(':')[1].trim();
+      }
+    }
+    if (PRIVATE_KEY) {
+      fs.writeFileSync(KEY_FILE, PRIVATE_KEY);
+      console.log('[Reality] Generated and saved new key pair');
+    }
+  } catch (e) {
+    console.error('[Key Generation Error]:', e.message);
+  }
+}
+
+// 7. 生成 2 个短 ID (hex 8 chars each)
+const SHORT_IDS = [
+  crypto.randomBytes(4).toString('hex'),
+  crypto.randomBytes(4).toString('hex')
+];
+
+// 8. Reality 增强的 sing-box 配置
 const finalConfig = {
   log: { level: "info" },
   inbounds: [{
@@ -71,41 +119,29 @@ const finalConfig = {
     tag: "vless-in",
     listen: "0.0.0.0",
     listen_port: PORT,
-    users: [{ uuid: UUID }],
-    transport: { type: "ws", path: "/vless-ws" }
+    users: [{
+      uuid: UUID,
+      flow: "xtls-rprx-vision"
+    }],
+    tls: {
+      enabled: true,
+      server_name: REALITY_SERVER_NAMES[0],
+      reality: {
+        enabled: true,
+        private_key: PRIVATE_KEY,
+        short_id: SHORT_IDS
+      }
+    }
   }],
   outbounds: [{ type: "direct", tag: "direct" }]
 };
 
 fs.writeFileSync(configPath, JSON.stringify(finalConfig, null, 2));
 
-// 5. 自动解密并拉取二进制组件
-const decode = (str) => Buffer.from(str, 'base64').toString('utf-8');
-const URL_CORE = decode('aHR0cHM6Ly9naXRodWIuY29tL1NhZ2VyTmV0L3NpbmctYm94L3JlbGVhc2VzL2Rvd25sb2FkL3YxLjkuMy9zaW5nLWJveC0xLjkuMy1saW51eC1hbWQ2NC50YXIuZ3o=');
-const URL_TUNNEL = decode('aHR0cHM6Ly9naXRodWIuY29tL2Nsb3VkZmxhcmUvY2xvdWRmbGFyZWQvcmVsZWFzZXMvbGF0ZXN0L2Rvd25sb2FkL2Nsb3VkZmxhcmVkLWxpbnV4LWFtZDY0');
-
-const BIN_CORE = path.join(__dirname, 'web');
-const BIN_TUNNEL = path.join(__dirname, 'npm-runner');
-const ua = 'npm/9.6.7 node/v18.16.0 linux x64';
-
-if (!fs.existsSync(BIN_CORE)) {
-  try {
-    console.log('[Core] Downloading Sing-box core...');
-    execSync(`curl -A "${ua}" -sSL "${URL_CORE}" | tar -xz -C /tmp && mv /tmp/sing-box-*/sing-box ${BIN_CORE} && chmod +x ${BIN_CORE}`);
-  } catch (e) { console.error('[Core Download Failed]:', e.message); }
-}
-
-if (!fs.existsSync(BIN_TUNNEL)) {
-  try {
-    console.log('[Tunnel] Downloading cloudflared...');
-    execSync(`curl -A "${ua}" -sSL -o ${BIN_TUNNEL} "${URL_TUNNEL}" && chmod +x ${BIN_TUNNEL}`);
-  } catch (e) { console.error('[Tunnel Download Failed]:', e.message); }
-}
-
-// 6. 启动 Sing-box
+// 9. 启动 Sing-box
 if (fs.existsSync(BIN_CORE)) {
   const runCore = () => {
-    console.log(`[Core] Launching Sing-box on port ${PORT}...`);
+    console.log(`[Core] Launching Sing-box on port ${PORT} (VLESS + Reality + TLS)...`);
     const sb = spawn(BIN_CORE, ['run', '-c', 'config.json']);
     sb.stdout.on('data', data => console.log(`[Sing-box] ${data.toString().trim()}`));
     sb.stderr.on('data', data => console.log(`[Sing-box] ${data.toString().trim()}`));
@@ -114,40 +150,35 @@ if (fs.existsSync(BIN_CORE)) {
   runCore();
 }
 
-// 7. 启动隧道并自动打印纯动态获取的节点
-if (fs.existsSync(BIN_TUNNEL)) {
-  const runTunnel = async () => {
-    console.log('[Tunnel] Starting Cloudflare Tunnel...');
-    const domainName = await getDynamicDomain(IP);
-    const cf = spawn(BIN_TUNNEL, ['tunnel', '--url', `http://127.0.0.1:${PORT}`]);
-    let printed = false;
-    
-    cf.stderr.on('data', data => {
-      const match = data.toString().match(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/);
-      if (match && !printed) {
-        printed = true;
-        const sub = match[0].replace('https://', '');
-        console.log('\n==================================================');
-        console.log(`[Auto-Detect] 真实外网 IP: ${IP}`);
-        console.log(`[Auto-Detect] PTR 反查解析域名: ${domainName || '机房未绑定反向 PTR 记录'}`);
-        console.log(`[UUID Sync] 生效 UUID: ${UUID}`);
-        
-        console.log('\n🚀【CF 隧道加密节点链接】:');
-        console.log(`vless://${UUID}@${sub}:443?encryption=none&security=tls&sni=${sub}&type=ws&host=${sub}&path=%2Fvless-ws#CF-Tunnel`);
-        
-        console.log('\n⚡【原生 IP 直连节点链接】:');
-        console.log(`vless://${UUID}@${IP}:${PORT}?encryption=none&security=none&type=ws&host=${IP}&path=%2Fvless-ws#Native-IP-Direct`);
-        
-        if (domainName) {
-          console.log('\n🌐【原生域名直连节点链接】:');
-          console.log(`vless://${UUID}@${domainName}:${PORT}?encryption=none&security=none&type=ws&host=${domainName}&path=%2Fvless-ws#Native-Domain-Direct`);
-        }
-        console.log('==================================================\n');
-      }
-    });
-    cf.on('exit', () => setTimeout(runTunnel, 5000));
-  };
-  runTunnel();
-}
+// 10. 打印节点链接
+setTimeout(() => {
+  console.log('\n==================================================');
+  console.log(`[Auto-Detect] 真实外网 IP: ${IP}`);
+  console.log(`[Reality] 私钥已保存: ${KEY_FILE}`);
+  console.log(`[Reality] 目标伪装网站: ${REALITY_DEST}`);
+  console.log(`[Reality] 允许 SNI 列表: ${REALITY_SERVER_NAMES.join(', ')}`);
+  console.log(`[UUID Sync] 生效 UUID: ${UUID}`);
+  console.log(`[Reality] 短 ID: ${SHORT_IDS.join(', ')}`);
+  console.log(`[Reality] 公钥: ${PUBLIC_KEY}`);
+
+  console.log('\n🚀【Reality 加密节点链接】:');
+  console.log(`vless://${UUID}@${IP}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${REALITY_SERVER_NAMES[0]}&fp=chrome&pbk=${PUBLIC_KEY}&sid=${SHORT_IDS[0]}&type=tcp&headerType=none#Reality-Node`);
+
+  console.log('\n📱【Stash/Clash/Shadowrocket 配置片段】:');
+  console.log(`  - name: "Reality-Node"`);
+  console.log(`    type: vless`);
+  console.log(`    server: ${IP}`);
+  console.log(`    port: ${PORT}`);
+  console.log(`    uuid: "${UUID}"`);
+  console.log(`    flow: xtls-rprx-vision`);
+  console.log(`    tls: true`);
+  console.log(`    network: tcp`);
+  console.log(`    reality-opts:`);
+  console.log(`      public-key: "${PUBLIC_KEY}"`);
+  console.log(`      short-id: "${SHORT_IDS[0]}"`);
+  console.log(`    client-fingerprint: chrome`);
+  console.log(`    udp: true`);
+  console.log('==================================================\n');
+}, 5000);
 
 setInterval(() => {}, 100000);
