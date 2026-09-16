@@ -111,11 +111,13 @@ if (!fs.existsSync(BIN_TUNNEL)) {
 // 9. 生成或加载 Reality key pair
 if (!PRIVATE_KEY && fs.existsSync(BIN_CORE)) {
   try {
-    const result = execSync(`${BIN_CORE} x25519`, { encoding: 'utf8' });
-    console.log('[Reality] sing-box x25519 output:', JSON.stringify(result));
+    // sing-box 1.13+ 用 'generate reality-keypair' (不是 'x25519')
+    const result = execSync(`${BIN_CORE} generate reality-keypair`, { encoding: 'utf8' });
+    console.log('[Reality] sing-box generate reality-keypair output:', JSON.stringify(result));
     
-    const privMatch = result.match(/Private key:\s*([A-Za-z0-9_-]+)/);
-    const pubMatch = result.match(/Public key:\s*([A-Za-z0-9_-]+)/);
+    // 输出格式: PrivateKey: <base64-url>\nPublicKey: <base64-url>
+    const privMatch = result.match(/PrivateKey:\s*([A-Za-z0-9_-]+)/);
+    const pubMatch = result.match(/PublicKey:\s*([A-Za-z0-9_-]+)/);
     
     if (privMatch && pubMatch) {
       PRIVATE_KEY = privMatch[1];
@@ -148,10 +150,10 @@ if (!PRIVATE_KEY && fs.existsSync(BIN_CORE)) {
 // 9b. 如果已有私钥但没公钥，从私钥派生公钥
 if (PRIVATE_KEY && !PUBLIC_KEY && fs.existsSync(BIN_CORE)) {
   try {
-    // 用私钥作为输入生成公钥 (x25519 -i <private_key>)
-    const result = execSync(`${BIN_CORE} x25519 -i ${PRIVATE_KEY}`, { encoding: 'utf8' });
-    console.log('[Reality] x25519 -i output:', JSON.stringify(result));
-    const pubMatch = result.match(/Public key:\s*([A-Za-z0-9_-]+)/);
+    // sing-box 1.13+ 用 'generate reality-keypair -i <private_key>'
+    const result = execSync(`${BIN_CORE} generate reality-keypair -i ${PRIVATE_KEY}`, { encoding: 'utf8' });
+    console.log('[Reality] generate reality-keypair -i output:', JSON.stringify(result));
+    const pubMatch = result.match(/PublicKey:\s*([A-Za-z0-9_-]+)/);
     if (pubMatch) {
       PUBLIC_KEY = pubMatch[1];
       console.log(`[Reality] Derived public key from private (len=${PUBLIC_KEY.length})`);
