@@ -110,8 +110,8 @@ if (!fs.existsSync(BIN_TUNNEL)) {
   } catch (e) { console.error('[Tunnel Download Failed]:', e.message); }
 }
 
-// 9. 强制重新生成 Reality key pair (每次启动都生成新的,确保一致)
-if (fs.existsSync(BIN_CORE)) {
+// 9. 如果没加载到持久化 keys, 才生成新的
+if (!PRIVATE_KEY && fs.existsSync(BIN_CORE)) {
   try {
     // sing-box 1.13+ generate reality-keypair 只能全新生成 (不接受 -i/--private-key)
     const result = execSync(`${BIN_CORE} generate reality-keypair`, { encoding: 'utf8' });
@@ -151,21 +151,10 @@ if (fs.existsSync(BIN_CORE)) {
 }
 
 // 10. 生成 2 个短 ID
-// 持久化短 ID (让节点 URL 永久有效)
-const SHORT_ID_FILE = path.join(KEY_DIR, 'short_id.txt');
-let SHORT_IDS;
-if (fs.existsSync(SHORT_ID_FILE)) {
-  const savedId = fs.readFileSync(SHORT_ID_FILE, 'utf8').trim();
-  SHORT_IDS = [savedId, crypto.randomBytes(4).toString('hex')];
-  console.log(`[Reality] Loaded persistent short_id: ${savedId}`);
-} else {
-  SHORT_IDS = [
-    crypto.randomBytes(4).toString('hex'),
-    crypto.randomBytes(4).toString('hex')
-  ];
-  fs.writeFileSync(SHORT_ID_FILE, SHORT_IDS[0]);
-  console.log(`[Reality] Generated new short_id: ${SHORT_IDS[0]}`);
-}
+const SHORT_IDS = [
+  crypto.randomBytes(4).toString('hex'),
+  crypto.randomBytes(4).toString('hex')
+];
 
 // 11. Reality 增强的 sing-box 配置 (修改原版 inbounds)
 const finalConfig = {
