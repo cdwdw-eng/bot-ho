@@ -67,7 +67,7 @@ try {
 }
 
 // 6. Reality 配置 (新增)
-const REALITY_DEST = process.env.REALITY_DEST || 'www.apple.com:443';
+const REALITY_DEST = process.env.REALITY_DEST || '23.35.196.51:443';  // Apple IP direct
 const REALITY_SERVER_NAMES = (process.env.REALITY_SERVER_NAMES || 'www.apple.com,www.google.com,www.microsoft.com,www.samsung.com').split(',');
 
 // 7. 生成/加载 Reality key pair (新增)
@@ -87,7 +87,7 @@ if (fs.existsSync(KEY_FILE)) {
 
 // 8. 自动下载 Sing-box 二进制 (保留原版)
 const decode = (str) => Buffer.from(str, 'base64').toString('utf-8');
-const URL_CORE = decode('aHR0cHM6Ly9naXRodWIuY29tL1NhZ2VyTmV0L3NpbmctYm94L3JlbGVhc2VzL2Rvd25sb2FkL3YxLjE0LjEvc2luZy1ib3gtMS4xNC4xLWxpbnV4LWFtZDY0LWdsaWJjLnRhci5neg==');
+const URL_CORE = decode('aHR0cHM6Ly9naXRodWIuY29tL1NhZ2VyTmV0L3NpbmctYm94L3JlbGVhc2VzL2Rvd25sb2FkL3YxLjkuMy9zaW5nLWJveC0xLjkuMy1saW51eC1hbWQ2NC50YXIuZ3o=');
 const URL_TUNNEL = decode('aHR0cHM6Ly9naXRodWIuY29tL2Nsb3VkZmxhcmUvY2xvdWRmbGFyZWQvcmVsZWFzZXMvbGF0ZXN0L2Rvd25sb2FkL2Nsb3VkZmxhcmVkLWxpbnV4LWFtZDY0');
 
 const BIN_CORE = path.join(__dirname, 'web');
