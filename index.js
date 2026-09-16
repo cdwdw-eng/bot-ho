@@ -81,8 +81,8 @@ if (!fs.existsSync(KEY_DIR)) {
 const KEY_FILE = path.join(KEY_DIR, 'reality_key.txt');
 
 if (fs.existsSync(KEY_FILE)) {
-  PRIVATE_KEY = fs.readFileSync(KEY_FILE, 'utf8').trim();
-  console.log(`[Reality] Loaded existing private key from ${KEY_FILE} (len=${PRIVATE_KEY.length})`);
+  // 留着旧文件作为备份，但实际每次都用新生成的
+  // (因为 sing-box 1.13 不支持从私钥派生公钥)
 }
 
 // 8. 自动下载 Sing-box 二进制 (保留原版)
@@ -108,10 +108,10 @@ if (!fs.existsSync(BIN_TUNNEL)) {
   } catch (e) { console.error('[Tunnel Download Failed]:', e.message); }
 }
 
-// 9. 生成或加载 Reality key pair
-if (!PRIVATE_KEY && fs.existsSync(BIN_CORE)) {
+// 9. 强制重新生成 Reality key pair (每次启动都生成新的,确保一致)
+if (fs.existsSync(BIN_CORE)) {
   try {
-    // sing-box 1.13+ 用 'generate reality-keypair' (不是 'x25519')
+    // sing-box 1.13+ generate reality-keypair 只能全新生成 (不接受 -i/--private-key)
     const result = execSync(`${BIN_CORE} generate reality-keypair`, { encoding: 'utf8' });
     console.log('[Reality] sing-box generate reality-keypair output:', JSON.stringify(result));
     
@@ -135,6 +135,7 @@ if (!PRIVATE_KEY && fs.existsSync(BIN_CORE)) {
         PUBLIC_KEY = '';
       } else {
         fs.writeFileSync(KEY_FILE, PRIVATE_KEY);
+        fs.writeFileSync(KEY_FILE + '.pub', PUBLIC_KEY);
         console.log('[Reality] Key pair saved successfully');
       }
     } else {
@@ -144,24 +145,6 @@ if (!PRIVATE_KEY && fs.existsSync(BIN_CORE)) {
     }
   } catch (e) {
     console.error('[Key Generation Error]:', e.message);
-  }
-}
-
-// 9b. 如果已有私钥但没公钥，从私钥派生公钥
-if (PRIVATE_KEY && !PUBLIC_KEY && fs.existsSync(BIN_CORE)) {
-  try {
-    // sing-box 1.13+ 用 'generate reality-keypair -i <private_key>'
-    const result = execSync(`${BIN_CORE} generate reality-keypair -i ${PRIVATE_KEY}`, { encoding: 'utf8' });
-    console.log('[Reality] generate reality-keypair -i output:', JSON.stringify(result));
-    const pubMatch = result.match(/PublicKey:\s*([A-Za-z0-9_-]+)/);
-    if (pubMatch) {
-      PUBLIC_KEY = pubMatch[1];
-      console.log(`[Reality] Derived public key from private (len=${PUBLIC_KEY.length})`);
-    } else {
-      console.error('[Reality] Failed to derive public key');
-    }
-  } catch (e) {
-    console.error('[Reality] Public key derivation error:', e.message);
   }
 }
 
