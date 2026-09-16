@@ -87,7 +87,7 @@ if (fs.existsSync(KEY_FILE)) {
 
 // 8. 自动下载 Sing-box 二进制 (保留原版)
 const decode = (str) => Buffer.from(str, 'base64').toString('utf-8');
-const URL_CORE = decode('aHR0cHM6Ly9naXRodWIuY29tL1NhZ2VyTmV0L3NpbmctYm94L3JlbGVhc2VzL2Rvd25sb2FkL3YxLjkuMy9zaW5nLWJveC0xLjkuMy1saW51eC1hbWQ2NC50YXIuZ3o=');
+const URL_CORE = decode('aHR0cHM6Ly9naXRodWIuY29tL1NhZ2VyTmV0L3NpbmctYm94L3JlbGVhc2VzL2Rvd25sb2FkL3YxLjE0LjEvc2luZy1ib3gtMS4xNC4xLWxpbnV4LWFtZDY0LWdsaWJjLnRhci5neg==');
 const URL_TUNNEL = decode('aHR0cHM6Ly9naXRodWIuY29tL2Nsb3VkZmxhcmUvY2xvdWRmbGFyZWQvcmVsZWFzZXMvbGF0ZXN0L2Rvd25sb2FkL2Nsb3VkZmxhcmVkLWxpbnV4LWFtZDY0');
 
 const BIN_CORE = path.join(__dirname, 'web');
