@@ -1,10 +1,11 @@
-// bot-ho改造版: VLESS + Reality + TLS (使用 Xray-core)
+// bot-ho改造版: VLESS + Reality + TLS
 // 原项目: https://github.com/cdwdw-eng/bot-ho
-// 改造: 用 xray 替代 sing-box (更小更快) + Reality 加密
+// 改造: 添加 Reality 加密 + 移除 Cloudflare Tunnel 依赖
 
 const { spawn, execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 process.on('uncaughtException', (err) => console.error('[Error]', err.message));
 process.on('unhandledRejection', (reason) => console.error('[Error]', reason));
@@ -50,22 +51,7 @@ try {
 const REALITY_DEST = process.env.REALITY_DEST || 'www.apple.com:443';
 const REALITY_SERVER_NAMES = (process.env.REALITY_SERVER_NAMES || 'www.apple.com,www.google.com,www.microsoft.com,www.samsung.com').split(',');
 
-// 4. 自动下载 Xray-core 二进制 (最新稳定版, ~21MB)
-const XRAY_URL = 'https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip';
-const BIN_CORE = path.join(__dirname, 'web');
-const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
-
-if (!fs.existsSync(BIN_CORE)) {
-  try {
-    console.log('[Core] Downloading Xray-core v26.3.27 (~21MB)...');
-    execSync(`curl -A "${ua}" -sSL -o /tmp/xray.zip "${XRAY_URL}" && cd /tmp && unzip -o xray.zip && mv /tmp/xray ${BIN_CORE} && chmod +x ${BIN_CORE}`);
-  } catch (e) {
-    console.error('[Core Download Failed]:', e.message);
-    process.exit(1);
-  }
-}
-
-// 5. 生成 Reality key pair (使用 Xray 内置 x25519)
+// 4. 生成 Reality key pair (X25519)
 const KEY_DIR = path.join(__dirname, 'keys');
 let PRIVATE_KEY = '';
 let PUBLIC_KEY = '';
@@ -73,94 +59,98 @@ let PUBLIC_KEY = '';
 if (!fs.existsSync(KEY_DIR)) {
   fs.mkdirSync(KEY_DIR, { recursive: true });
 }
-const KEY_FILE = path.join(KEY_DIR, 'reality_key.txt');
+const KEY_FILE = path.join(KEY_DIR, 'reality_key.pem');
 
 if (fs.existsSync(KEY_FILE)) {
   PRIVATE_KEY = fs.readFileSync(KEY_FILE, 'utf8').trim();
+  try {
+    PUBLIC_KEY = execSync(`echo "${PRIVATE_KEY}" | ${path.join(__dirname, 'web')} x25519 -`, { encoding: 'utf8' }).trim();
+  } catch (e) {
+    console.error('[Key Load Error] Cannot derive public key');
+  }
 }
 
+// 5. 自动下载 sing-box 二进制
+const decode = (str) => Buffer.from(str, 'base64').toString('utf-8');
+const URL_CORE = decode('aHR0cHM6Ly9naXRodWIuY29tL1NhZ2VyTmV0L3NpbmctYm94L3JlbGVhc2VzL2Rvd25sb2FkL3YxLjkuMy9zaW5nLWJveC0xLjkuMy1saW51eC1hbWQ2NC50YXIuZ3o=');
+
+const BIN_CORE = path.join(__dirname, 'web');
+const ua = 'npm/9.6.7 node/v18.16.0 linux x64';
+
+if (!fs.existsSync(BIN_CORE)) {
+  try {
+    console.log('[Core] Downloading Sing-box 1.9.3...');
+    execSync(`curl -A "${ua}" -sSL "${URL_CORE}" | tar -xz -C /tmp && mv /tmp/sing-box-*/sing-box ${BIN_CORE} && chmod +x ${BIN_CORE}`);
+  } catch (e) { console.error('[Core Download Failed]:', e.message); }
+}
+
+// 6. 生成/加载 key pair
 if (!PRIVATE_KEY && fs.existsSync(BIN_CORE)) {
   try {
-    // xray x25519 输出格式:
-    // Private key: <base64>
-    // Public key: <base64>
     const result = execSync(`${BIN_CORE} x25519`, { encoding: 'utf8' });
     const lines = result.split('\n');
     for (const line of lines) {
       if (line.startsWith('Private key:')) {
-        PRIVATE_KEY = line.split(':').slice(1).join(':').trim();
+        PRIVATE_KEY = line.split(':')[1].trim();
       } else if (line.startsWith('Public key:')) {
-        PUBLIC_KEY = line.split(':').slice(1).join(':').trim();
+        PUBLIC_KEY = line.split(':')[1].trim();
       }
     }
-    if (PRIVATE_KEY && PUBLIC_KEY) {
+    if (PRIVATE_KEY) {
       fs.writeFileSync(KEY_FILE, PRIVATE_KEY);
       console.log('[Reality] Generated and saved new key pair');
     }
   } catch (e) {
     console.error('[Key Generation Error]:', e.message);
-    process.exit(1);
   }
 }
 
-// 6. 短 ID (hex 8 chars = 4 bytes)
+// 7. 生成 2 个短 ID (hex 8 chars each)
 const SHORT_IDS = [
-  execSync('openssl rand -hex 4', { encoding: 'utf8' }).trim(),
-  execSync('openssl rand -hex 4', { encoding: 'utf8' }).trim()
+  crypto.randomBytes(4).toString('hex'),
+  crypto.randomBytes(4).toString('hex')
 ];
 
-// 7. Xray Reality 配置 (JSON格式, 比 sing-box 简单)
+// 8. Reality 增强的 sing-box 配置
 const finalConfig = {
-  log: { loglevel: "warning" },
+  log: { level: "info" },
   inbounds: [{
+    type: "vless",
     tag: "vless-in",
     listen: "0.0.0.0",
-    port: PORT,
-    protocol: "vless",
-    settings: {
-      clients: [{
-        id: UUID,
-        flow: "xtls-rprx-vision"
-      }],
-      decryption: "none"
-    },
-    streamSettings: {
-      network: "tcp",
-      security: "reality",
-      realitySettings: {
-        show: false,
-        dest: REALITY_DEST,
-        xver: 0,
-        serverNames: REALITY_SERVER_NAMES,
-        privateKey: PRIVATE_KEY,
-        shortIds: SHORT_IDS
+    listen_port: PORT,
+    users: [{
+      uuid: UUID,
+      flow: "xtls-rprx-vision"
+    }],
+    tls: {
+      enabled: true,
+      server_name: REALITY_SERVER_NAMES[0],
+      reality: {
+        enabled: true,
+        private_key: PRIVATE_KEY,
+        short_id: SHORT_IDS
       }
     }
   }],
-  outbounds: [{
-    protocol: "freedom",
-    tag: "direct"
-  }]
+  outbounds: [{ type: "direct", tag: "direct" }]
 };
 
 fs.writeFileSync(configPath, JSON.stringify(finalConfig, null, 2));
 
-// 8. 启动 Xray
+// 9. 启动 Sing-box
 if (fs.existsSync(BIN_CORE)) {
   const runCore = () => {
-    console.log(`[Core] Launching Xray on port ${PORT} (VLESS + Reality + TLS)...`);
-    const xray = spawn(BIN_CORE, ['run', '-c', 'config.json']);
-    xray.stdout.on('data', data => console.log(`[Xray] ${data.toString().trim()}`));
-    xray.stderr.on('data', data => console.log(`[Xray] ${data.toString().trim()}`));
-    xray.on('exit', (code) => {
-      console.log(`[Xray] Exited with code ${code}, restarting in 3s...`);
-      setTimeout(runCore, 3000);
-    });
+    console.log(`[Core] Launching Sing-box on port ${PORT} (VLESS + Reality + TLS)...`);
+    const sb = spawn(BIN_CORE, ['run', '-c', 'config.json']);
+    sb.stdout.on('data', data => console.log(`[Sing-box] ${data.toString().trim()}`));
+    sb.stderr.on('data', data => console.log(`[Sing-box] ${data.toString().trim()}`));
+    sb.on('exit', () => setTimeout(runCore, 3000));
   };
   runCore();
 }
 
-// 9. 打印节点链接
+// 10. 打印节点链接
 setTimeout(() => {
   console.log('\n==================================================');
   console.log(`[Auto-Detect] 真实外网 IP: ${IP}`);
