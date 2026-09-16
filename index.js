@@ -67,7 +67,7 @@ try {
 }
 
 // 6. Reality 配置 (新增)
-const REALITY_DEST = process.env.REALITY_DEST || '23.35.196.51:443';  // Apple IP direct
+const REALITY_DEST = process.env.REALITY_DEST || 'www.apple.com:443';
 const REALITY_SERVER_NAMES = (process.env.REALITY_SERVER_NAMES || 'www.apple.com,www.google.com,www.microsoft.com,www.samsung.com').split(',');
 
 // 7. 生成/加载 Reality key pair (新增)
