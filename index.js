@@ -164,13 +164,17 @@ const finalConfig = {
     listen_port: PORT,
     users: [{
       uuid: UUID,
-      flow: "xtls-rprx-vision"  // Reality 必须
+      flow: "xtls-rprx-vision"
     }],
     tls: {
       enabled: true,
       server_name: REALITY_SERVER_NAMES[0],
       reality: {
         enabled: true,
+        handshake: {
+          server: REALITY_SERVER_NAMES[0],
+          server_port: 443
+        },
         private_key: PRIVATE_KEY,
         short_id: SHORT_IDS
       }
