@@ -172,8 +172,8 @@ const finalConfig = {
     listen: "0.0.0.0",
     listen_port: PORT,
     users: [{
-      uuid: UUID,
-      flow: "xtls-rprx-vision"
+      uuid: UUID
+      // flow 留空 - Reality 不强制要求 (更兼容)
     }],
     tls: {
       enabled: true,
@@ -228,14 +228,14 @@ if (fs.existsSync(BIN_TUNNEL)) {
         console.log(`[Reality] 短 ID: ${SHORT_IDS.join(', ')}`);
 
         console.log('\n🚀【CF 隧道加密节点链接】(Reality):');
-        console.log(`vless://${UUID}@${sub}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${REALITY_SERVER_NAMES[0]}&fp=chrome&pbk=${PUBLIC_KEY}&sid=${SHORT_IDS[0]}&type=tcp&headerType=none#CF-Tunnel-Reality`);
+        console.log(`vless://${UUID}@${sub}:443?encryption=none&security=reality&sni=${REALITY_SERVER_NAMES[0]}&fp=chrome&pbk=${PUBLIC_KEY}&sid=${SHORT_IDS[0]}&type=tcp&headerType=none#CF-Tunnel-Reality`);
 
         console.log('\n⚡️【原生 IP 直连节点链接】(Reality):');
-        console.log(`vless://${UUID}@${IP}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${REALITY_SERVER_NAMES[0]}&fp=chrome&pbk=${PUBLIC_KEY}&sid=${SHORT_IDS[0]}&type=tcp&headerType=none#Native-IP-Reality`);
+        console.log(`vless://${UUID}@${IP}:${PORT}?encryption=none&security=reality&sni=${REALITY_SERVER_NAMES[0]}&fp=chrome&pbk=${PUBLIC_KEY}&sid=${SHORT_IDS[0]}&type=tcp&headerType=none#Native-IP-Reality`);
 
         if (domainName) {
           console.log('\n🌐【原生域名直连节点链接】(Reality):');
-          console.log(`vless://${UUID}@${domainName}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${REALITY_SERVER_NAMES[0]}&fp=chrome&pbk=${PUBLIC_KEY}&sid=${SHORT_IDS[0]}&type=tcp&headerType=none#Native-Domain-Reality`);
+          console.log(`vless://${UUID}@${domainName}:${PORT}?encryption=none&security=reality&sni=${REALITY_SERVER_NAMES[0]}&fp=chrome&pbk=${PUBLIC_KEY}&sid=${SHORT_IDS[0]}&type=tcp&headerType=none#Native-Domain-Reality`);
         }
         console.log('==================================================\n');
       }
