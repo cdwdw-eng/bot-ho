@@ -82,6 +82,7 @@ const KEY_FILE = path.join(KEY_DIR, 'reality_key.txt');
 
 if (fs.existsSync(KEY_FILE)) {
   PRIVATE_KEY = fs.readFileSync(KEY_FILE, 'utf8').trim();
+  console.log(`[Reality] Loaded existing private key from ${KEY_FILE} (len=${PRIVATE_KEY.length})`);
 }
 
 // 8. 自动下载 Sing-box 二进制 (保留原版)
@@ -107,16 +108,12 @@ if (!fs.existsSync(BIN_TUNNEL)) {
   } catch (e) { console.error('[Tunnel Download Failed]:', e.message); }
 }
 
-// 9. 生成 Reality key pair (在 sing-box 下载后)
+// 9. 生成或加载 Reality key pair
 if (!PRIVATE_KEY && fs.existsSync(BIN_CORE)) {
   try {
     const result = execSync(`${BIN_CORE} x25519`, { encoding: 'utf8' });
     console.log('[Reality] sing-box x25519 output:', JSON.stringify(result));
     
-    // sing-box x25519 输出格式:
-    //   Private key: <base64-url>
-    //   Public key: <base64-url>
-    // 用正则提取 (X25519 base64 = 43 chars, no padding)
     const privMatch = result.match(/Private key:\s*([A-Za-z0-9_-]+)/);
     const pubMatch = result.match(/Public key:\s*([A-Za-z0-9_-]+)/);
     
@@ -127,8 +124,6 @@ if (!PRIVATE_KEY && fs.existsSync(BIN_CORE)) {
       console.log(`[Reality] priv="${PRIVATE_KEY}" (len=${PRIVATE_KEY.length})`);
       console.log(`[Reality] pub="${PUBLIC_KEY}" (len=${PUBLIC_KEY.length})`);
       
-      // 验证: X25519 base64 (32 bytes) = 43 chars (RawURLEncoding)
-      // decode 后必须正好 32 字节
       const buf = Buffer.from(PRIVATE_KEY, 'base64');
       console.log(`[Reality] decoded length: ${buf.length} bytes (need 32)`);
       
@@ -147,6 +142,24 @@ if (!PRIVATE_KEY && fs.existsSync(BIN_CORE)) {
     }
   } catch (e) {
     console.error('[Key Generation Error]:', e.message);
+  }
+}
+
+// 9b. 如果已有私钥但没公钥，从私钥派生公钥
+if (PRIVATE_KEY && !PUBLIC_KEY && fs.existsSync(BIN_CORE)) {
+  try {
+    // 用私钥作为输入生成公钥 (x25519 -i <private_key>)
+    const result = execSync(`${BIN_CORE} x25519 -i ${PRIVATE_KEY}`, { encoding: 'utf8' });
+    console.log('[Reality] x25519 -i output:', JSON.stringify(result));
+    const pubMatch = result.match(/Public key:\s*([A-Za-z0-9_-]+)/);
+    if (pubMatch) {
+      PUBLIC_KEY = pubMatch[1];
+      console.log(`[Reality] Derived public key from private (len=${PUBLIC_KEY.length})`);
+    } else {
+      console.error('[Reality] Failed to derive public key');
+    }
+  } catch (e) {
+    console.error('[Reality] Public key derivation error:', e.message);
   }
 }
 
