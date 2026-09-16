@@ -111,22 +111,39 @@ if (!fs.existsSync(BIN_TUNNEL)) {
 if (!PRIVATE_KEY && fs.existsSync(BIN_CORE)) {
   try {
     const result = execSync(`${BIN_CORE} x25519`, { encoding: 'utf8' });
+    console.log('[Reality] sing-box x25519 output:', JSON.stringify(result));
+    
     // sing-box x25519 输出格式:
-    //   Private key: <base64>
-    //   Public key: <base64>
-    // 用正则表达式提取 key 值 (去除任何空格/换行)
+    //   Private key: <base64-url>
+    //   Public key: <base64-url>
+    // 用正则提取 (X25519 base64 = 43 chars, no padding)
     const privMatch = result.match(/Private key:\s*([A-Za-z0-9_-]+)/);
     const pubMatch = result.match(/Public key:\s*([A-Za-z0-9_-]+)/);
-    if (privMatch) PRIVATE_KEY = privMatch[1];
-    if (pubMatch) PUBLIC_KEY = pubMatch[1];
     
-    if (PRIVATE_KEY && PUBLIC_KEY) {
-      // 验证 key 格式 (X25519 base64 = 43 or 44 chars)
-      if (PRIVATE_KEY.length < 40 || PRIVATE_KEY.length > 50) {
-        console.error('[Reality] WARNING: private key length unusual:', PRIVATE_KEY.length);
+    if (privMatch && pubMatch) {
+      PRIVATE_KEY = privMatch[1];
+      PUBLIC_KEY = pubMatch[1];
+      
+      console.log(`[Reality] priv="${PRIVATE_KEY}" (len=${PRIVATE_KEY.length})`);
+      console.log(`[Reality] pub="${PUBLIC_KEY}" (len=${PUBLIC_KEY.length})`);
+      
+      // 验证: X25519 base64 (32 bytes) = 43 chars (RawURLEncoding)
+      // decode 后必须正好 32 字节
+      const buf = Buffer.from(PRIVATE_KEY, 'base64');
+      console.log(`[Reality] decoded length: ${buf.length} bytes (need 32)`);
+      
+      if (buf.length !== 32) {
+        console.error('[Reality] ERROR: decoded private key is not 32 bytes!');
+        PRIVATE_KEY = '';
+        PUBLIC_KEY = '';
+      } else {
+        fs.writeFileSync(KEY_FILE, PRIVATE_KEY);
+        console.log('[Reality] Key pair saved successfully');
       }
-      fs.writeFileSync(KEY_FILE, PRIVATE_KEY);
-      console.log(`[Reality] Generated key pair (priv=${PRIVATE_KEY.length} chars, pub=${PUBLIC_KEY.length} chars)`);
+    } else {
+      console.error('[Reality] Could not extract keys from sing-box x25519 output');
+      console.error('[Reality] Full output:');
+      console.error(result);
     }
   } catch (e) {
     console.error('[Key Generation Error]:', e.message);
