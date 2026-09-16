@@ -111,17 +111,22 @@ if (!fs.existsSync(BIN_TUNNEL)) {
 if (!PRIVATE_KEY && fs.existsSync(BIN_CORE)) {
   try {
     const result = execSync(`${BIN_CORE} x25519`, { encoding: 'utf8' });
-    const lines = result.split('\n');
-    for (const line of lines) {
-      if (line.startsWith('Private key:')) {
-        PRIVATE_KEY = line.split(':').slice(1).join(':').trim();
-      } else if (line.startsWith('Public key:')) {
-        PUBLIC_KEY = line.split(':').slice(1).join(':').trim();
-      }
-    }
+    // sing-box x25519 输出格式:
+    //   Private key: <base64>
+    //   Public key: <base64>
+    // 用正则表达式提取 key 值 (去除任何空格/换行)
+    const privMatch = result.match(/Private key:\s*([A-Za-z0-9_-]+)/);
+    const pubMatch = result.match(/Public key:\s*([A-Za-z0-9_-]+)/);
+    if (privMatch) PRIVATE_KEY = privMatch[1];
+    if (pubMatch) PUBLIC_KEY = pubMatch[1];
+    
     if (PRIVATE_KEY && PUBLIC_KEY) {
+      // 验证 key 格式 (X25519 base64 = 43 or 44 chars)
+      if (PRIVATE_KEY.length < 40 || PRIVATE_KEY.length > 50) {
+        console.error('[Reality] WARNING: private key length unusual:', PRIVATE_KEY.length);
+      }
       fs.writeFileSync(KEY_FILE, PRIVATE_KEY);
-      console.log('[Reality] Generated and saved new key pair');
+      console.log(`[Reality] Generated key pair (priv=${PRIVATE_KEY.length} chars, pub=${PUBLIC_KEY.length} chars)`);
     }
   } catch (e) {
     console.error('[Key Generation Error]:', e.message);
