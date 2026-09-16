@@ -80,9 +80,13 @@ if (!fs.existsSync(KEY_DIR)) {
 }
 const KEY_FILE = path.join(KEY_DIR, 'reality_key.txt');
 
-if (fs.existsSync(KEY_FILE)) {
-  // 留着旧文件作为备份，但实际每次都用新生成的
-  // (因为 sing-box 1.13 不支持从私钥派生公钥)
+if (fs.existsSync(KEY_FILE) && fs.existsSync(KEY_FILE + '.pub')) {
+  PRIVATE_KEY = fs.readFileSync(KEY_FILE, 'utf8').trim();
+  PUBLIC_KEY = fs.readFileSync(KEY_FILE + '.pub', 'utf8').trim();
+  console.log(`[Reality] Loaded persistent keys (priv=${PRIVATE_KEY.length}, pub=${PUBLIC_KEY.length})`);
+} else if (fs.existsSync(KEY_FILE)) {
+  // 只有私钥没有公钥,优先重新生成
+  console.log('[Reality] KEY_FILE exists but no .pub, will regenerate');
 }
 
 // 8. 自动下载 Sing-box 二进制 (保留原版)
@@ -108,8 +112,8 @@ if (!fs.existsSync(BIN_TUNNEL)) {
   } catch (e) { console.error('[Tunnel Download Failed]:', e.message); }
 }
 
-// 9. 强制重新生成 Reality key pair (每次启动都生成新的,确保一致)
-if (fs.existsSync(BIN_CORE)) {
+// 9. 只有在没加载到 keys 时才生成
+if (!PRIVATE_KEY && fs.existsSync(BIN_CORE)) {
   try {
     // sing-box 1.13+ generate reality-keypair 只能全新生成 (不接受 -i/--private-key)
     const result = execSync(`${BIN_CORE} generate reality-keypair`, { encoding: 'utf8' });
@@ -148,21 +152,11 @@ if (fs.existsSync(BIN_CORE)) {
   }
 }
 
-// 10. 持久化短 ID (确保节点 URL 永久有效)
-const SHORT_ID_FILE = path.join(KEY_DIR, 'short_id.txt');
-let SHORT_IDS;
-if (fs.existsSync(SHORT_ID_FILE)) {
-  const savedId = fs.readFileSync(SHORT_ID_FILE, 'utf8').trim();
-  SHORT_IDS = [savedId, crypto.randomBytes(4).toString('hex')];
-  console.log(`[Reality] Loaded persistent short_id: ${savedId}`);
-} else {
-  SHORT_IDS = [
-    crypto.randomBytes(4).toString('hex'),
-    crypto.randomBytes(4).toString('hex')
-  ];
-  fs.writeFileSync(SHORT_ID_FILE, SHORT_IDS[0]);
-  console.log(`[Reality] Generated new short_id: ${SHORT_IDS[0]}`);
-}
+// 10. 生成 2 个短 ID
+const SHORT_IDS = [
+  crypto.randomBytes(4).toString('hex'),
+  crypto.randomBytes(4).toString('hex')
+];
 
 // 11. Reality 增强的 sing-box 配置 (修改原版 inbounds)
 const finalConfig = {
