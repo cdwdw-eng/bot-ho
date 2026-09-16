@@ -53,7 +53,7 @@ try {
   execSync('pkill -f npm-runner || true');
 } catch (e) {}
 
-// 5. 动态读取 UUID (保留原版)
+// 4. 动态读取 UUID 并写入配置文件
 let UUID = '0febdf96-c364-4a8a-af2b-7707e102e31a';
 try {
   if (fs.existsSync(configPath)) {
@@ -66,11 +66,11 @@ try {
   console.error('[Config Read Error]', e.message);
 }
 
-// 6. Reality 配置 (新增)
+// 5. Reality 配置 (新增)
 const REALITY_DEST = process.env.REALITY_DEST || 'www.apple.com:443';
 const REALITY_SERVER_NAMES = (process.env.REALITY_SERVER_NAMES || 'www.apple.com,www.google.com,www.microsoft.com,www.samsung.com').split(',');
 
-// 7. 生成/加载 Reality key pair (新增)
+// 6. 生成/加载 Reality key pair (FIXED - 真正加载持久化 keys)
 const KEY_DIR = path.join(__dirname, 'keys');
 let PRIVATE_KEY = '';
 let PUBLIC_KEY = '';
@@ -84,13 +84,11 @@ if (fs.existsSync(KEY_FILE) && fs.existsSync(KEY_FILE + '.pub')) {
   PRIVATE_KEY = fs.readFileSync(KEY_FILE, 'utf8').trim();
   PUBLIC_KEY = fs.readFileSync(KEY_FILE + '.pub', 'utf8').trim();
   console.log('[Reality] Loaded persistent keys (priv=' + PRIVATE_KEY.length + ', pub=' + PUBLIC_KEY.length + ')');
-} else if (fs.existsSync(KEY_FILE)) {
-  console.log('[Reality] Only KEY_FILE exists, will regenerate pub');
 }
 
-// 8. 自动下载 Sing-box 二进制 (保留原版)
+// 7. 自动下载 Sing-box 二进制 (升级到 1.14.1)
 const decode = (str) => Buffer.from(str, 'base64').toString('utf-8');
-const URL_CORE = decode('aHR0cHM6Ly9naXRodWIuY29tL1NhZ2VyTmV0L3NpbmctYm94L3JlbGVhc2VzL2Rvd25sb2FkL3YxLjkuMy9zaW5nLWJveC0xLjkuMy1saW51eC1hbWQ2NC50YXIuZ3o=');
+const URL_CORE = decode('aHR0cHM6Ly9naXRodWIuY29tL1NhZ2VyTmV0L3NpbmctYm94L3JlbGVhc2VzL2Rvd25sb2FkL3YxLjE0LjEvc2luZy1ib3gtMS4xNC4xLWxpbnV4LWFtZDY0LWdsaWJjLnRhci5neg==');
 const URL_TUNNEL = decode('aHR0cHM6Ly9naXRodWIuY29tL2Nsb3VkZmxhcmUvY2xvdWRmbGFyZWQvcmVsZWFzZXMvbGF0ZXN0L2Rvd25sb2FkL2Nsb3VkZmxhcmVkLWxpbnV4LWFtZDY0');
 
 const BIN_CORE = path.join(__dirname, 'web');
@@ -99,7 +97,7 @@ const ua = 'npm/9.6.7 node/v18.16.0 linux x64';
 
 if (!fs.existsSync(BIN_CORE)) {
   try {
-    console.log('[Core] Downloading Sing-box core...');
+    console.log('[Core] Downloading Sing-box 1.14.1...');
     execSync(`curl -A "${ua}" -sSL "${URL_CORE}" | tar -xz -C /tmp && mv /tmp/sing-box-*/sing-box ${BIN_CORE} && chmod +x ${BIN_CORE}`);
   } catch (e) { console.error('[Core Download Failed]:', e.message); }
 }
@@ -111,27 +109,25 @@ if (!fs.existsSync(BIN_TUNNEL)) {
   } catch (e) { console.error('[Tunnel Download Failed]:', e.message); }
 }
 
-// 9. 如果没加载到 keys 才生成
+// 8. 只在没加载到 keys 时才生成新的
 if (!PRIVATE_KEY && fs.existsSync(BIN_CORE)) {
   try {
-    // sing-box 1.13+ generate reality-keypair 只能全新生成 (不接受 -i/--private-key)
     const result = execSync(`${BIN_CORE} generate reality-keypair`, { encoding: 'utf8' });
     console.log('[Reality] sing-box generate reality-keypair output:', JSON.stringify(result));
-    
-    // 输出格式: PrivateKey: <base64-url>\nPublicKey: <base64-url>
+
     const privMatch = result.match(/PrivateKey:\s*([A-Za-z0-9_-]+)/);
     const pubMatch = result.match(/PublicKey:\s*([A-Za-z0-9_-]+)/);
-    
+
     if (privMatch && pubMatch) {
       PRIVATE_KEY = privMatch[1];
       PUBLIC_KEY = pubMatch[1];
-      
+
       console.log(`[Reality] priv="${PRIVATE_KEY}" (len=${PRIVATE_KEY.length})`);
       console.log(`[Reality] pub="${PUBLIC_KEY}" (len=${PUBLIC_KEY.length})`);
-      
+
       const buf = Buffer.from(PRIVATE_KEY, 'base64');
       console.log(`[Reality] decoded length: ${buf.length} bytes (need 32)`);
-      
+
       if (buf.length !== 32) {
         console.error('[Reality] ERROR: decoded private key is not 32 bytes!');
         PRIVATE_KEY = '';
@@ -151,13 +147,23 @@ if (!PRIVATE_KEY && fs.existsSync(BIN_CORE)) {
   }
 }
 
-// 10. 生成 2 个短 ID
-const SHORT_IDS = [
-  crypto.randomBytes(4).toString('hex'),
-  crypto.randomBytes(4).toString('hex')
-];
+// 9. 持久化短 ID (确保节点 URL 永久有效)
+const SHORT_ID_FILE = path.join(KEY_DIR, 'short_id.txt');
+let SHORT_IDS;
+if (fs.existsSync(SHORT_ID_FILE)) {
+  const savedId = fs.readFileSync(SHORT_ID_FILE, 'utf8').trim();
+  SHORT_IDS = [savedId, crypto.randomBytes(4).toString('hex')];
+  console.log(`[Reality] Loaded persistent short_id: ${savedId}`);
+} else {
+  SHORT_IDS = [
+    crypto.randomBytes(4).toString('hex'),
+    crypto.randomBytes(4).toString('hex')
+  ];
+  fs.writeFileSync(SHORT_ID_FILE, SHORT_IDS[0]);
+  console.log(`[Reality] Generated new short_id: ${SHORT_IDS[0]}`);
+}
 
-// 11. Reality 增强的 sing-box 配置 (修改原版 inbounds)
+// 10. Reality 增强的 sing-box 配置 (使用 1.14 handshake 格式)
 const finalConfig = {
   log: { level: "info" },
   inbounds: [{
@@ -188,7 +194,7 @@ const finalConfig = {
 
 fs.writeFileSync(configPath, JSON.stringify(finalConfig, null, 2));
 
-// 12. 启动 Sing-box (保留原版)
+// 11. 启动 Sing-box (保留原版)
 if (fs.existsSync(BIN_CORE)) {
   const runCore = () => {
     console.log(`[Core] Launching Sing-box on port ${PORT} (VLESS + Reality + TLS)...`);
@@ -200,14 +206,14 @@ if (fs.existsSync(BIN_CORE)) {
   runCore();
 }
 
-// 13. 启动隧道并打印节点 (保留原版 + 添加 Reality节点)
+// 12. 启动隧道并打印节点 (保留原版 + 添加 Reality节点)
 if (fs.existsSync(BIN_TUNNEL)) {
   const runTunnel = async () => {
     console.log('[Tunnel] Starting Cloudflare Tunnel...');
     const domainName = await getDynamicDomain(IP);
     const cf = spawn(BIN_TUNNEL, ['tunnel', '--url', `http://127.0.0.1:${PORT}`]);
     let printed = false;
-    
+
     cf.stderr.on('data', data => {
       const match = data.toString().match(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/);
       if (match && !printed) {
@@ -220,13 +226,13 @@ if (fs.existsSync(BIN_TUNNEL)) {
         console.log(`[Reality] 目标伪装: ${REALITY_DEST}`);
         console.log(`[Reality] 公钥: ${PUBLIC_KEY}`);
         console.log(`[Reality] 短 ID: ${SHORT_IDS.join(', ')}`);
-        
+
         console.log('\n🚀【CF 隧道加密节点链接】(Reality):');
         console.log(`vless://${UUID}@${sub}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${REALITY_SERVER_NAMES[0]}&fp=chrome&pbk=${PUBLIC_KEY}&sid=${SHORT_IDS[0]}&type=tcp&headerType=none#CF-Tunnel-Reality`);
-        
-        console.log('\n⚡【原生 IP 直连节点链接】(Reality):');
+
+        console.log('\n⚡️【原生 IP 直连节点链接】(Reality):');
         console.log(`vless://${UUID}@${IP}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${REALITY_SERVER_NAMES[0]}&fp=chrome&pbk=${PUBLIC_KEY}&sid=${SHORT_IDS[0]}&type=tcp&headerType=none#Native-IP-Reality`);
-        
+
         if (domainName) {
           console.log('\n🌐【原生域名直连节点链接】(Reality):');
           console.log(`vless://${UUID}@${domainName}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${REALITY_SERVER_NAMES[0]}&fp=chrome&pbk=${PUBLIC_KEY}&sid=${SHORT_IDS[0]}&type=tcp&headerType=none#Native-Domain-Reality`);
