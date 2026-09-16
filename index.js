@@ -83,10 +83,9 @@ const KEY_FILE = path.join(KEY_DIR, 'reality_key.txt');
 if (fs.existsSync(KEY_FILE) && fs.existsSync(KEY_FILE + '.pub')) {
   PRIVATE_KEY = fs.readFileSync(KEY_FILE, 'utf8').trim();
   PUBLIC_KEY = fs.readFileSync(KEY_FILE + '.pub', 'utf8').trim();
-  console.log(`[Reality] Loaded persistent keys (priv=${PRIVATE_KEY.length}, pub=${PUBLIC_KEY.length})`);
+  console.log('[Reality] Loaded persistent keys (priv=' + PRIVATE_KEY.length + ', pub=' + PUBLIC_KEY.length + ')');
 } else if (fs.existsSync(KEY_FILE)) {
-  // 只有私钥没有公钥,优先重新生成
-  console.log('[Reality] KEY_FILE exists but no .pub, will regenerate');
+  console.log('[Reality] Only KEY_FILE exists, will regenerate pub');
 }
 
 // 8. 自动下载 Sing-box 二进制 (保留原版)
@@ -112,7 +111,7 @@ if (!fs.existsSync(BIN_TUNNEL)) {
   } catch (e) { console.error('[Tunnel Download Failed]:', e.message); }
 }
 
-// 9. 只有在没加载到 keys 时才生成
+// 9. 如果没加载到 keys 才生成
 if (!PRIVATE_KEY && fs.existsSync(BIN_CORE)) {
   try {
     // sing-box 1.13+ generate reality-keypair 只能全新生成 (不接受 -i/--private-key)
